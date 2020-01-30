@@ -77,6 +77,7 @@ minikube start
 ### Install KUDO terraform provider
 
 ```bash
+$ make build
 $ cd terraform
 $ terraform apply
 kudo_operator.zookeeper: Refreshing state... [id=default-zookeeper-0.3.0]

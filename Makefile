@@ -1,13 +1,15 @@
 all: build terraform-init
 
 # LOGGING=TF_LOG=trace
-LOGGING=
+# LOGGING=
+
+VERSION=0.0.1
+BINARY=terraform-provider-kudo_v${VERSION}
+PLUGIN_DIR=~/.terraform.d/plugins/
 
 build:
-	go build -o terraform/terraform-provider-kudo ./kudo
-	cp terraform/terraform-provider-kudo terraform-modules/
-	cp terraform/terraform-provider-kudo terraform-modules/kafka-module/
-	cp terraform/terraform-provider-kudo terraform-modules/zookeeper-module/
+	mkdir -p ${PLUGIN_DIR}
+	go build -o ${PLUGIN_DIR}${BINARY} ./kudo
 
 terraform-init: build
 	cd terraform; ${LOGGING} terraform init;

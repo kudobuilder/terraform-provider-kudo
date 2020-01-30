@@ -9,9 +9,12 @@ import (
 	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/kudobuilder/kudo/pkg/apis/kudo/v1beta1"
+	"github.com/kudobuilder/kudo/pkg/client/clientset/versioned"
 )
 
 //TODO add all parameter values to the state, even defaults
@@ -108,6 +111,19 @@ func resourceInstance() *schema.Resource {
 				Elem: &schema.Schema{
 					Type: schema.TypeString,
 				},
+			},
+			"pvcs": &schema.Schema{
+				Type:     schema.TypeList,
+				Computed: true,
+				Elem: &schema.Schema{
+					Type: schema.TypeString,
+				},
+			},
+			"cleanup_pvcs": &schema.Schema{
+				Type:        schema.TypeBool,
+				Default:     true,
+				Description: "If true, deleting the object in terraform will cleanup StatefulSet PVCs",
+				Optional:    true,
 			},
 		},
 	}
@@ -234,8 +250,6 @@ func resourceInstanceRead(d *schema.ResourceData, m interface{}) error {
 		parameters[k] = v
 		inParams[k] = v
 	}
-
-
 
 	d.Set("parameters", inParams)
 	d.Set("output_parameters", parameters)
@@ -366,20 +380,39 @@ func resourceInstanceRead(d *schema.ResourceData, m interface{}) error {
 
 	d.Set("statefulsets", deduplicate(ssNames))
 
+	//PVCs
+	pvcNames := make([]string, 0)
+
+	pvcs, err := kubeClient.KubeClient.CoreV1().PersistentVolumeClaims(namespace).List(listOptions1)
+	if err != nil {
+		return fmt.Errorf("Error getting pvcs: %v", err)
+	}
+	for _, o := range pvcs.Items {
+		pvcNames = append(pvcNames, o.Name)
+	}
+	pvcs, err = kubeClient.KubeClient.CoreV1().PersistentVolumeClaims(namespace).List(listOptions2)
+	if err != nil {
+		return fmt.Errorf("Error getting statefulSets: %v", err)
+	}
+	for _, o := range pvcs.Items {
+		pvcNames = append(pvcNames, o.Name)
+	}
+
+	d.Set("pvcs", deduplicate(pvcNames))
 
 	return nil
 }
 
-func deduplicate(array []string) ([]string){
+func deduplicate(array []string) []string {
 	keys := make(map[string]bool)
-    list := []string{} 
-    for _, entry := range array {
-        if _, value := keys[entry]; !value {
-            keys[entry] = true
-            list = append(list, entry)
-        }
-    }    
-    return list
+	list := []string{}
+	for _, entry := range array {
+		if _, value := keys[entry]; !value {
+			keys[entry] = true
+			list = append(list, entry)
+		}
+	}
+	return list
 }
 
 func resourceInstanceUpdate(d *schema.ResourceData, m interface{}) error {
@@ -474,14 +507,62 @@ func resourceInstanceDelete(d *schema.ResourceData, m interface{}) error {
 	name := d.Get("name").(string)
 	namespace := d.Get("namespace").(string)
 	config := m.(Config)
-	kudoClient, err := config.GetKudoClient()
+
+	// use the current context in kubeconfig
+	kconfig, err := clientcmd.BuildConfigFromFlags("", config.Kubeconfig)
 	if err != nil {
-		return fmt.Errorf("could not create kudo client: %w", err)
+		return err
 	}
-	//should we wait to make sure its cleaned up before returning here?
+
+	// create the clientset
+	kudoClientset, err := versioned.NewForConfig(kconfig)
+	if err != nil {
+		return err
+	}
+
+	propagationPolicy := metav1.DeletePropagationForeground
+	options := &metav1.DeleteOptions{
+		PropagationPolicy: &propagationPolicy,
+	}
+
+	err = kudoClientset.KudoV1beta1().Instances(namespace).Delete(name, options)
+	if err != nil {
+		return err
+	}
+
+	wait := true
+	for wait {
+		_, err = kudoClientset.KudoV1beta1().Instances(namespace).Get(name, metav1.GetOptions{})
+		if errors.IsNotFound(err) {
+			wait = false
+		}
+	}
 
 	// get the PVCs too please
+	pvcs, ok := d.GetOk("pvcs")
+	if ok {
+		pvcList := pvcs.([]interface{})
+		kubeClient, err := config.GetKubernetesClient()
+		if err != nil {
+			return err
+		}
+		propagationPolicy := metav1.DeletePropagationForeground
+		options := &metav1.DeleteOptions{
+			PropagationPolicy: &propagationPolicy,
+		}
 
+		for _, pvc := range pvcList {
 
-	return kudoClient.DeleteInstance(name, namespace)
+			err = kubeClient.KubeClient.CoreV1().PersistentVolumeClaims(namespace).Delete(pvc.(string), options)
+			wait := true
+			for wait {
+				_, err = kubeClient.KubeClient.CoreV1().PersistentVolumeClaims(namespace).Get(pvc.(string), metav1.GetOptions{})
+				if errors.IsNotFound(err) {
+					wait = false
+				}
+			}
+		}
+	}
+
+	return nil
 }

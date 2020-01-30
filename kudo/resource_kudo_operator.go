@@ -7,6 +7,10 @@ import (
 	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
 	"github.com/spf13/afero"
 
+	"github.com/kudobuilder/kudo/pkg/client/clientset/versioned"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/clientcmd"
+
 	"github.com/kudobuilder/kudo/pkg/kudoctl/env"
 	"github.com/kudobuilder/kudo/pkg/kudoctl/kudohome"
 	pkgresolver "github.com/kudobuilder/kudo/pkg/kudoctl/packages/resolver"
@@ -227,5 +231,27 @@ func resourceOperatorUpdate(d *schema.ResourceData, m interface{}) error {
 //TODO implement unistall here
 func resourceOperatorDelete(d *schema.ResourceData, m interface{}) error {
 	log.Printf("resourceOperatorCreate: %v %v\n", d, m)
-	return nil
+	name := d.Get("object_name").(string)
+	namespace := d.Get("operator_namespace").(string)
+	config := m.(Config)
+
+	// use the current context in kubeconfig
+	kconfig, err := clientcmd.BuildConfigFromFlags("", config.Kubeconfig)
+	if err != nil {
+		return err
+	}
+
+	// create the clientset
+	kudoClientset, err := versioned.NewForConfig(kconfig)
+	if err != nil {
+		return err
+	}
+
+	propagationPolicy := metav1.DeletePropagationBackground
+	options := &metav1.DeleteOptions{
+		PropagationPolicy: &propagationPolicy,
+	}
+
+	return kudoClientset.KudoV1beta1().OperatorVersions(namespace).Delete(name, options)
+
 }

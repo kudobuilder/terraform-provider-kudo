@@ -1,0 +1,180 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Name }}-bootstrap
+  namespace: {{ .Namespace }}
+data:
+  bootstrap.sh: |
+    #!/usr/bin/env bash
+
+    cp /health-check-script/health-check.sh health-check.sh;
+    chmod +x health-check.sh;
+
+    {{ if eq .Params.KERBEROS_ENABLED "true" }}
+    cat /kafka-keytab/kafka.keytab | base64 --decode > kafka.keytab;
+    cp /jass-config/kafka_server_jaas.conf $KAFKA_HOME/config/kafka_server_jaas.conf;
+    cp /krb5-config/krb5.conf $KAFKA_HOME/config/krb5.conf;
+    sed -i "s/<HOSTNAME>/$(hostname -f)/g" $KAFKA_HOME/config/kafka_server_jaas.conf;
+    export KAFKA_OPTS="-Djava.security.auth.login.config=${KAFKA_HOME}/config/kafka_server_jaas.conf -Djava.security.krb5.conf=${KAFKA_HOME}/config/krb5.conf $KAFKA_OPTS"
+    {{ if eq .Params.KERBEROS_DEBUG "true" }}
+    export KAFKA_OPTS="-Dsun.security.krb5.debug=true $KAFKA_OPTS"
+    {{ end }}
+    {{ end }}
+    
+    KAFKA_BROKER_ID=${HOSTNAME##*-}
+    
+    LISTENERS=()
+    ADVERTISED_LISTENERS=()
+
+    {{ if eq .Params.KERBEROS_ENABLED "true" }}
+    # Kerberos enabled
+    {{ if eq .Params.TRANSPORT_ENCRYPTION_ENABLED "true" }}
+    # Transport encryption on
+    LISTENERS=("${LISTENERS[@]}" "INTERNAL://0.0.0.0:${KAFKA_BROKER_PORT_TLS}")
+    ADVERTISED_LISTENERS=("${ADVERTISED_LISTENERS[@]}" "INTERNAL://$(hostname -f):${KAFKA_BROKER_PORT_TLS}")
+    {{ if eq .Params.TRANSPORT_ENCRYPTION_ALLOW_PLAINTEXT "true" }}
+    # Allow plaintext as well
+    LISTENERS=("${LISTENERS[@]}" "EXTERNAL://0.0.0.0:${KAFKA_BROKER_PORT}")
+    ADVERTISED_LISTENERS=("${ADVERTISED_LISTENERS[@]}" "EXTERNAL://$(hostname -f):${KAFKA_BROKER_PORT}")
+    {{ end }}
+    LISTENER_SECURITY_PROTOCOL_MAP="INTERNAL:SASL_SSL,EXTERNAL:SASL_PLAINTEXT"
+    {{ else }}
+    # Plaintext only
+    LISTENERS=("${LISTENERS[@]}" "INTERNAL://0.0.0.0:${KAFKA_BROKER_PORT}")
+    ADVERTISED_LISTENERS=("${ADVERTISED_LISTENERS[@]}" "INTERNAL://$(hostname -f):${KAFKA_BROKER_PORT}")
+    LISTENER_SECURITY_PROTOCOL_MAP="INTERNAL:SASL_PLAINTEXT"
+    {{ end }}
+    #
+    {{ else if eq .Params.TRANSPORT_ENCRYPTION_ENABLED "true" }}
+    # No kerberos, but Transport encryption is on
+    LISTENERS=("${LISTENERS[@]}" "INTERNAL://0.0.0.0:${KAFKA_BROKER_PORT_TLS}")
+    ADVERTISED_LISTENERS=("${ADVERTISED_LISTENERS[@]}" "INTERNAL://$(hostname -f):${KAFKA_BROKER_PORT_TLS}")
+    {{ if eq .Params.TRANSPORT_ENCRYPTION_ALLOW_PLAINTEXT "true" }}
+    # Plaintext allowed
+    LISTENERS=("${LISTENERS[@]}" "EXTERNAL://0.0.0.0:${KAFKA_BROKER_PORT}")
+    ADVERTISED_LISTENERS=("${ADVERTISED_LISTENERS[@]}" "EXTERNAL://$(hostname -f):${KAFKA_BROKER_PORT}")
+    {{ end }}
+    LISTENER_SECURITY_PROTOCOL_MAP="INTERNAL:SSL"
+    #
+    {{ else }}
+    # No TLS, no Kerberos, Plaintext only
+    LISTENERS=("${LISTENERS[@]}" "INTERNAL://0.0.0.0:${KAFKA_BROKER_PORT}")
+    ADVERTISED_LISTENERS=("${ADVERTISED_LISTENERS[@]}" "INTERNAL://$(hostname -f):${KAFKA_BROKER_PORT}")
+    LISTENER_SECURITY_PROTOCOL_MAP="INTERNAL:PLAINTEXT"
+    {{ end }}
+
+    LISTENERS=$(printf ",%s" "${LISTENERS[@]}")
+    LISTENERS=${LISTENERS:1}
+    ADVERTISED_LISTENERS=$(printf ",%s" "${ADVERTISED_LISTENERS[@]}")
+    ADVERTISED_LISTENERS=${ADVERTISED_LISTENERS:1}
+
+    SASL_ENABLED_MECHANISMS=""    
+    if [[ "$KAFKA_CLIENT_ENABLED" = "true" ]]; then
+      LISTENERS="${LISTENERS},CLIENT://0.0.0.0:${KAFKA_CLIENT_PORT}"
+      ADVERTISED_LISTENERS="${ADVERTISED_LISTENERS},CLIENT://$(hostname -f):${KAFKA_CLIENT_PORT}"
+    
+      if [[ "$KAFKA_CLIENT_AUTHENTICATION" = "scram-sha-512" ]]; then
+        SASL_ENABLED_MECHANISMS="SCRAM-SHA-512\n$SASL_ENABLED_MECHANISMS"
+        LISTENER_SECURITY_PROTOCOL_MAP="${LISTENER_SECURITY_PROTOCOL_MAP},CLIENT:SASL_PLAINTEXT"
+        CLIENT_LISTENER=$(cat <<EOF
+    # CLIENT listener authentication
+    listener.name.client.scram-sha-512.sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required;
+    EOF
+    )
+      else
+        LISTENER_SECURITY_PROTOCOL_MAP="${LISTENER_SECURITY_PROTOCOL_MAP},CLIENT:PLAINTEXT"
+      fi
+    fi
+    
+    export KAFKA_LOG_DIR_PATH="${LOG_DIR}/log${KAFKA_BROKER_ID}"
+    
+    if [[ -e ${KAFKA_HOME}/init/rack.id ]]; then
+      export RACK_ID=$(cat ${KAFKA_HOME}/init/rack.id)
+    fi
+
+    {{ if eq .Params.EXTERNAL_ADVERTISED_LISTENER "true" }}
+    export LISTENER_SECURITY_PROTOCOL_MAP="$LISTENER_SECURITY_PROTOCOL_MAP"
+    /opt/kafka/kafka-utils
+    {{ end }}
+    EXTERNAL_LISTENERS=$(cat /opt/kafka/external.listeners 2>/dev/null)
+    EXTERNAL_ADVERTISED_LISTENERS=$(cat /opt/kafka/external.advertised.listeners 2>/dev/null)
+    EXTERNAL_SECURITY_MAP=$(cat /opt/kafka/external.listener.security.protocol.map 2>/dev/null)
+    if [[ ! -z ${EXTERNAL_SECURITY_MAP} ]]; then
+      LISTENER_SECURITY_PROTOCOL_MAP="${LISTENER_SECURITY_PROTOCOL_MAP},${EXTERNAL_SECURITY_MAP}"
+    fi
+    if [[ ! -z ${EXTERNAL_ADVERTISED_LISTENERS} ]]; then
+      ADVERTISED_LISTENERS="${ADVERTISED_LISTENERS},${EXTERNAL_ADVERTISED_LISTENERS}"
+    fi
+    if [[ ! -z ${EXTERNAL_LISTENERS} ]]; then
+      LISTENERS="${LISTENERS},${EXTERNAL_LISTENERS}"
+    fi
+
+    {{ if eq .Params.TRANSPORT_ENCRYPTION_ENABLED "true" }}
+        /etc/tls/bin/enable-tls.sh
+    {{ end }}
+
+    {{ if eq .Params.AUTHORIZATION_ENABLED "true" }}
+    # Calculate Kafka Authorization Super Users
+    SUPER_USERS=()
+    {{ if .Params.AUTHORIZATION_SUPER_USERS }}
+    SUPER_USERS="{{ .Params.AUTHORIZATION_SUPER_USERS }}"
+    SUPER_USERS=(${SUPER_USERS//;/ })
+    {{ end }}
+    {{ if eq .Params.KERBEROS_ENABLED "true" }}
+    SUPER_USERS=("${SUPER_USERS[@]}" "User:{{ .Params.KERBEROS_PRIMARY }}")
+    {{ else if eq .Params.SSL_AUTHENTICATION_ENABLED "true" }}
+    for i in $(seq 0 $(( {{ .Params.BROKER_COUNT }} - 1 )))
+    do
+      SUPER_USERS=("${SUPER_USERS[@]}" "User:$(hostname -f | sed s/$KAFKA_BROKER_ID/$i/)")
+    done
+    {{ end }}
+    SUPER_USERS=$(printf ";%s" "${SUPER_USERS[@]}")
+    SUPER_USERS=${SUPER_USERS:1}
+    {{ end }}
+
+    # Set Environment
+    echo "KAFKA_OPTS=\"$KAFKA_OPTS\"" > ${KAFKA_HOME}/.env
+    
+    KAFKA_CONFIGURATION=$(cat /config/server.properties)
+    # Write the config file
+    cat > ${KAFKA_HOME}/server.properties <<EOF
+    broker.id=${KAFKA_BROKER_ID}
+    broker.rack=${RACK_ID}
+    # Listeners
+    listeners=${LISTENERS}
+    advertised.listeners=${ADVERTISED_LISTENERS}
+    listener.security.protocol.map=${LISTENER_SECURITY_PROTOCOL_MAP}
+    inter.broker.listener.name=INTERNAL
+    {{ if eq .Params.AUTHORIZATION_ENABLED "true" }}
+    super.users=${SUPER_USERS}
+    {{ end }}
+    # Logs
+    log.dirs=${KAFKA_LOG_DIR_PATH}
+    # Provided configuration
+    ${KAFKA_CONFIGURATION}
+    EOF
+
+    {{ if .Params.CUSTOM_SERVER_PROPERTIES_CM_NAME }}
+    KAFKA_CUSTOM_CONFIGURATION_FILE=$(ls -d /custom-configuration/* | head -n 1)
+    cp $KAFKA_CUSTOM_CONFIGURATION_FILE /tmp/custom-configuration
+    echo "Appending custom configuration file to the server.properties..." | xargs -L 1 echo $(date +'[%Y-%m-%d %H:%M:%S,%3N]') $1
+
+    # remove blacklisted properties that users cannot override
+    skip_properties=("broker.id" "listeners" "advertised.listeners" "advertised.host.name" "listener.security.protocol.map" "log.dirs")
+    for property in "${skip_properties[@]}"; do
+      # grep and sed commands are using the '=' suffix to make sure we don't remove any
+      # properties containing the 'skip_properties' strings
+      # e.g 'broker.id=1' should be removed but 'broker.id.subkey=a' should not be removed
+      if grep -q "${property}=" /tmp/custom-configuration; then
+        echo "WARN: cannot override '$property' using custom properties configmap.";
+        echo "Removing property '$property'"
+        sed -i "/^${property}=/d" /tmp/custom-configuration
+      fi
+    done
+
+    KAFKA_CUSTOM_CONFIGURATION=$(cat /tmp/custom-configuration)
+    echo ${KAFKA_CUSTOM_CONFIGURATION}
+    cat >> ${KAFKA_HOME}/server.properties <<EOF
+    ${KAFKA_CUSTOM_CONFIGURATION}
+    EOF
+    {{ end }}

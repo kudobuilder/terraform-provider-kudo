@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Name }}-krb5-config
+  namespace: {{ .Namespace }}
+data:
+  krb5.conf: |
+    [libdefaults]
+    default_realm = {{ .Params.KERBEROS_REALM }}
+    {{ if eq .Params.KERBEROS_USE_TCP "true" }}
+    udp_preference_limit = 1
+    {{ end }}
+
+    [realms]
+    {{ .Params.KERBEROS_REALM }} = {
+    kdc = {{ .Params.KERBEROS_KDC_HOSTNAME }}:{{ .Params.KERBEROS_KDC_PORT }}
+    }

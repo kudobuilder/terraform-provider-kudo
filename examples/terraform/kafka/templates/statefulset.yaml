@@ -1,0 +1,253 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Name }}-{{ .OperatorName }}
+  namespace: {{ .Namespace }}
+  labels:
+    kafka: {{ .OperatorName }}
+    app: kafka
+  annotations:
+    reloader.kudo.dev/auto: "true"
+spec:
+  selector:
+    matchLabels:
+      app: kafka
+      kafka: {{ .OperatorName }}
+  serviceName: {{ .Name }}-svc
+  replicas: {{ .Params.BROKER_COUNT }}
+  template:
+    metadata:
+      labels:
+        app: kafka
+        kafka: {{ .OperatorName }}
+        kudo.dev/instance: {{ .Name }}
+    spec:
+      terminationGracePeriodSeconds: 300
+      serviceAccountName: {{ .Name }}
+      containers:
+        {{ if eq .Params.METRICS_ENABLED "true" }}
+        - name: kafka-node-exporter
+          image: quay.io/prometheus/node-exporter:v0.18.1
+          resources:
+            requests:
+              memory: 20Mi
+              cpu: 0.1
+            limits:
+              memory: 50Mi
+              cpu: 0.2
+          ports:
+            - containerPort: {{ .Params.KAFKA_NODE_EXPORTER_PORT }}
+              name: ne-metrics
+          {{ if eq .Params.PERSISTENT_STORAGE "true" }}
+          volumeMounts:
+            - name: {{ .Name }}-datadir
+              mountPath: /var/lib/kafka
+          {{ end }}
+          args:
+            - --web.listen-address=0.0.0.0:{{ .Params.KAFKA_NODE_EXPORTER_PORT }}
+            - --web.disable-exporter-metrics
+            - --collector.filesystem
+        {{ end }}
+        - name: k8skafka
+          imagePullPolicy: Always
+          image: mesosphere/kafka:1.1.0-2.4.0
+          resources:
+            requests:
+              memory: {{ .Params.BROKER_MEM }}
+              cpu: {{ .Params.BROKER_CPUS }}
+            limits:
+              memory: {{ .Params.BROKER_MEM_LIMIT }}
+              cpu: {{ .Params.BROKER_CPUS_LIMIT }}
+          ports:
+            - containerPort: {{ .Params.BROKER_PORT }}
+              name: server
+            {{ if eq .Params.TRANSPORT_ENCRYPTION_ENABLED "true" }}
+            - containerPort: {{ .Params.BROKER_PORT_TLS }}
+              name: server-tls
+            {{ end }}
+            {{ if eq .Params.EXTERNAL_ADVERTISED_LISTENER "true" }}
+            {{ if eq  .Params.EXTERNAL_ADVERTISED_LISTENER_TYPE "LoadBalancer" }}
+            - containerPort: {{ .Params.EXTERNAL_ADVERTISED_LISTENER_PORT }}
+              name: ingress
+            {{ end }}
+            {{ if eq  .Params.EXTERNAL_ADVERTISED_LISTENER_TYPE "NodePort" }}
+            {{- $root := . -}}
+            {{ range $i, $v := until (int .Params.BROKER_COUNT) }}
+            - containerPort: {{ add (int $root.Params.EXTERNAL_NODE_PORT) $v}}
+              name: node-port-{{ $v }}
+            {{ end }}
+            {{ end }}
+            {{ end }}
+          command:
+            - bash
+            - -c
+          args:
+            - /bootstrap/bootstrap.sh;
+              source ${KAFKA_HOME}/.env;
+              echo "Starting the kafka broker using broker.id ${HOSTNAME##*-}...";
+              KAFKA_OPTS="${KAFKA_OPTS} ${METRICS_OPTS}" exec ${KAFKA_HOME}/bin/kafka-server-start.sh ${KAFKA_HOME}/server.properties;
+          env:
+            - name: KAFKA_HEAP_OPTS
+              value : "-Xmx512M -Xms512M"
+            - name: KAFKA_OPTS
+              value: "-Dlogging.level=INFO"
+            {{ if eq .Params.METRICS_ENABLED "true" }}
+            - name: METRICS_OPTS
+              value: "-javaagent:/opt/jmx-exporter/jmx_prometheus_javaagent.jar=9094:/metrics/metrics.properties"
+            {{ end }}
+            - name: KAFKA_ZK_URI
+              value: {{ .Params.ZOOKEEPER_URI }}{{ if .Params.ZOOKEEPER_PATH }}{{ .Params.ZOOKEEPER_PATH }}{{ else }}/{{ .Name }}{{ end }}
+            - name: GC_LOG_ENABLED
+              value: "false"
+            - name: LOG_DIR
+            {{ if eq .Params.PERSISTENT_STORAGE "true" }}
+              value: /var/lib/kafka/data
+            {{ else }}
+              value: "${KAFKA_HOME}/data"
+            {{ end }}
+            - name: METRICS_ENABLED
+              value: "{{ .Params.METRICS_ENABLED }}"
+            - name: KAFKA_CLIENT_ENABLED
+              value: "{{ .Params.CLIENT_PORT_ENABLED }}"
+            - name: KAFKA_BROKER_PORT
+              value: "{{ .Params.BROKER_PORT }}"
+            - name: KAFKA_BROKER_PORT_TLS
+              value: "{{ .Params.BROKER_PORT_TLS }}"
+            - name: KAFKA_CLIENT_PORT
+              value: "{{ .Params.CLIENT_PORT }}"
+            - name: EXTERNAL_INGRESS_PORT
+              value: "{{ .Params.EXTERNAL_ADVERTISED_LISTENER_PORT }}"
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+          {{ if eq .Params.PERSISTENT_STORAGE "true" }}
+            - name: {{ .Name }}-datadir
+              mountPath: /var/lib/kafka
+          {{ end }}
+            - name: bootstrap
+              mountPath: /bootstrap
+            - name: config
+              mountPath: /config
+            - name: health-check-script
+              mountPath: /health-check-script
+          {{ if eq .Params.METRICS_ENABLED "true" }}
+            - name: metrics
+              mountPath: /metrics
+          {{ end }}
+          {{ if .Params.CUSTOM_SERVER_PROPERTIES_CM_NAME }}
+            - name: custom-configuration
+              mountPath: /custom-configuration
+          {{ end }}
+          {{ if eq .Params.KERBEROS_ENABLED "true" }}
+            - name: jass-config
+              mountPath: /jass-config
+            - name: krb5-config
+              mountPath: /krb5-config
+            - name: kafka-keytab
+              mountPath: /kafka-keytab
+              readOnly: true
+          {{ end }}
+          {{ if eq .Params.TRANSPORT_ENCRYPTION_ENABLED "true" }}
+            - name: kafka-tls
+              mountPath: /etc/tls/certs
+            - name: enable-tls
+              mountPath: /etc/tls/bin
+          {{ end }}
+          readinessProbe:
+            tcpSocket:
+              {{ if eq .Params.TRANSPORT_ENCRYPTION_ENABLED "true" }}
+              port: {{ .Params.BROKER_PORT_TLS }}
+              {{ else }}
+              port: {{ .Params.BROKER_PORT }}
+              {{ end }}
+            initialDelaySeconds: {{ .Params.READINESS_INITIAL_DELAY_SECONDS }}
+            periodSeconds: {{ .Params.READINESS_PERIOD_SECONDS }}
+            timeoutSeconds: {{ .Params.READINESS_TIMEOUT_SECONDS }}
+            successThreshold: {{ .Params.READINESS_SUCCESS_THRESHOLD }}
+            failureThreshold: {{ .Params.READINESS_FAILURE_THRESHOLD }}
+          livenessProbe:
+            {{ if eq .Params.LIVENESS_METHOD "FUNCTIONAL" }}
+            exec:
+              command:
+              - sh
+              - -c
+              - "$KAFKA_HOME/health-check.sh"
+            {{ else }}
+            tcpSocket:
+              {{ if eq .Params.TRANSPORT_ENCRYPTION_ENABLED "true" }}
+              port: {{ .Params.BROKER_PORT_TLS }}
+              {{ else }}
+              port: {{ .Params.BROKER_PORT }}
+              {{ end }}
+            {{ end }}
+            initialDelaySeconds: {{ .Params.LIVENESS_INITIAL_DELAY_SECONDS }}
+            periodSeconds: {{ .Params.LIVENESS_PERIOD_SECONDS }}
+            timeoutSeconds: {{ .Params.LIVENESS_TIMEOUT_SECONDS }}
+            failureThreshold: {{ .Params.LIVENESS_FAILURE_THRESHOLD }}
+      securityContext:
+        runAsUser: 1000
+        fsGroup: 1000
+      volumes:
+        - name: bootstrap
+          configMap:
+            name: {{ .Name }}-bootstrap
+            defaultMode: 0777
+        - name: config
+          configMap:
+            name: {{ .Name }}-serverproperties
+        - name: metrics
+          configMap:
+            {{ if .Params.CUSTOM_METRICS_CM_NAME }}
+            name: {{ .Params.CUSTOM_METRICS_CM_NAME }}
+            {{ else }}
+            name: {{ .Name }}-metrics-config
+            {{ end }}
+        - name: health-check-script
+          configMap:
+            name: {{ .Name }}-health-check-script
+        {{ if .Params.CUSTOM_SERVER_PROPERTIES_CM_NAME }}
+        - name: custom-configuration
+          configMap:
+            name: {{ .Params.CUSTOM_SERVER_PROPERTIES_CM_NAME }}
+        {{ end }}
+        {{ if eq .Params.KERBEROS_ENABLED "true" }}
+        - name: jass-config
+          configMap:
+            name: {{ .Name }}-jaas-config
+        - name: krb5-config
+          configMap:
+            name: {{ .Name }}-krb5-config
+        - name: kafka-keytab
+          secret:
+            secretName: {{ .Params.KERBEROS_KEYTAB_SECRET }}
+        {{ end }}
+        {{ if eq .Params.TRANSPORT_ENCRYPTION_ENABLED "true" }}
+        - name: kafka-tls
+          secret:
+            secretName: {{ .Params.TLS_SECRET_NAME }}
+        - name: enable-tls
+          configMap:
+            name:  {{ .Name }}-enable-tls
+            defaultMode: 0777
+        {{ end }}
+  volumeClaimTemplates:
+    {{ if eq .Params.PERSISTENT_STORAGE "true" }}
+    - metadata:
+        name: {{ .Name }}-datadir
+        labels:
+          kudo.dev/instance: {{.Name}}
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: {{ .Params.DISK_SIZE }}
+        {{ if .Params.STORAGE_CLASS }}
+        storageClassName: {{ .Params.STORAGE_CLASS }}
+        {{ end }}
+    {{ end }}

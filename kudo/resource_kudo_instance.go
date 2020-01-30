@@ -538,6 +538,11 @@ func resourceInstanceDelete(d *schema.ResourceData, m interface{}) error {
 		}
 	}
 
+	cleanupPVCs := d.Get("cleanup_pvcs").(bool)
+	if !cleanupPVCs {
+		return nil
+	}
+
 	// get the PVCs too please
 	pvcs, ok := d.GetOk("pvcs")
 	if ok {

@@ -1,0 +1,11 @@
+apiVersion: policy/v1beta1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ .Name }}-pdb
+  namespace: {{ .Namespace }}
+spec:
+  selector:
+    matchLabels:
+      app: kafka
+      kudo.dev/instance: {{ .Name }}
+  maxUnavailable: 1

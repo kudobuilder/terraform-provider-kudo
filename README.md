@@ -1,6 +1,23 @@
 # Terraform Provider for KUDO
 
 
+## Problem Statement
+
+* KUDO doesn't orchestrate meta-apps (applications composed of KUDO Opeartors)
+  * This could be done by creating an Operator who's templates are other instances
+* KUDO doesn't have a framework for referencing other `Instances` as parameter values
+  * This can't currently be done with KUDO
+
+
+## Other Products
+
+https://github.com/garden-io/garden/blob/master/docs/dashboard.gif
+
+From a developers perspective: https://garden.io/
+
+
+
+
 ## Things to do:
 
 1. Implement the provider configuration.  Currently only works with hardcoded path to KUBECONFIG

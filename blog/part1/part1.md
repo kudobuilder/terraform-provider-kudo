@@ -1,7 +1,5 @@
 # KUDO Terraform Provider, Part 1
 
-## 
-
 [KUDO](https://kudo.dev) is rolling out new and amazing features every month, but there still are plenty of features that are needed to facilitate usage for production workflows.  This KUDO Terraform provider looks to provide a solution for managing interconnected `Instances` and passing information from one Instance to another in a manner that allows for seemless upgrades.
 
 ## Currently
@@ -187,6 +185,16 @@ Now that we've described the `main.tf` file that defines our application stack, 
 minikube config set memory 12000
 minikube config set cpus 5
 minikube start
+```
+
+### Install the KUDO provider
+
+Clone down the [KUDO Provider Repo](https://github.com/runyontr/terraform-provider-kudo) and use the Makefile to install the KUDO provider binary into `~/.terraform.d/plugins`.  This provider was developed with Go version 1.13.5.
+
+```bash
+git clone https://github.com/runyontr/terraform-provider-kudo
+cd terraform-provider-kudo
+make build
 ```
 
 ### Planning

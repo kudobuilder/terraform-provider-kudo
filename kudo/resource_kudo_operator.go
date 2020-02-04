@@ -7,9 +7,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
 	"github.com/spf13/afero"
 
-	"github.com/kudobuilder/kudo/pkg/client/clientset/versioned"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/kudobuilder/kudo/pkg/kudoctl/env"
 	"github.com/kudobuilder/kudo/pkg/kudoctl/kudohome"
@@ -24,7 +22,7 @@ func resourceOperator() *schema.Resource {
 		Read:   resourceOperatorRead,
 		Update: resourceOperatorUpdate,
 		Delete: resourceOperatorDelete,
-
+		Exists: resourceOperatorExists,
 		Schema: map[string]*schema.Schema{
 			"operator_name": &schema.Schema{
 				Type:     schema.TypeString,
@@ -84,7 +82,6 @@ func resourceOperatorCreate(d *schema.ResourceData, m interface{}) error {
 	log.Printf("[%v] Repo: %v", name, repoName)
 	log.Printf("[%v] Operator Version: %v", name, version)
 	config := m.(Config)
-	log.Printf("[DEBUG] [%v]  Kubeconfig: %v", name, config.Kubeconfig)
 
 	// initialization of filesystem for all commands
 	fs := afero.NewOsFs()
@@ -94,11 +91,7 @@ func resourceOperatorCreate(d *schema.ResourceData, m interface{}) error {
 		return fmt.Errorf("could not build operator repository: %w", err)
 	}
 	d.Set("repo", repository.Config.Name)
-	kudoClient, err := kudo.NewClient(config.Kubeconfig, 0, true)
-
-	if err != nil {
-		return fmt.Errorf("could not create kudo client: %w", err)
-	}
+	kudoClient := config.GetKudoClient()
 
 	resolver := pkgresolver.New(repository)
 	//not sure if the versions are used here or not.
@@ -130,6 +123,21 @@ func printOperatorConfig(d *schema.ResourceData) {
 	}
 }
 
+func resourceOperatorExists(d *schema.ResourceData, m interface{}) (bool, error) {
+	config := m.(Config)
+
+	obj, def := d.GetOk("object_name")
+	if !def {
+		return false, nil
+	}
+
+	client := config.GetKudoClient()
+
+	_, err := client.GetOperatorVersion(obj.(string), d.Get("operator_namespace").(string))
+
+	return err == nil, err
+}
+
 func resourceOperatorRead(d *schema.ResourceData, m interface{}) error {
 	log.Printf("resourceOperatorCreate: %v %v\n", d, m)
 	// return nil
@@ -145,14 +153,10 @@ func resourceOperatorRead(d *schema.ResourceData, m interface{}) error {
 	}
 
 	c := m.(Config)
-	log.Printf("[DEBUG] Kubeconfig: %v", c.Kubeconfig)
 
-	kudoClient, err := c.GetKudoClient()
+	kudoClient := c.GetKudoClient()
 
-	if err != nil {
-		return fmt.Errorf("could not obtain KUDO client: %v", err)
-	}
-
+	//if cluster is not present, mark as "need to install"
 	ov, err := kudoClient.GetOperatorVersion(ovName, namespace)
 	if err != nil || ov == nil {
 		//error getting
@@ -193,7 +197,6 @@ func resourceOperatorUpdate(d *schema.ResourceData, m interface{}) error {
 	skipInstance := d.Get("skip_instance").(bool)
 
 	config := m.(Config)
-	log.Printf("[DEBUG] Kubeconfig: %v", config.Kubeconfig)
 
 	// initialization of filesystem for all commands
 	fs := afero.NewOsFs()
@@ -206,7 +209,7 @@ func resourceOperatorUpdate(d *schema.ResourceData, m interface{}) error {
 	d.Partial(true)
 	d.Set("repo", repository.Config.Name)
 	d.Partial(false)
-	kudoClient, err := kudo.NewClient(config.Kubeconfig, 0, true)
+	kudoClient := config.GetKudoClient()
 
 	if err != nil {
 		return fmt.Errorf("could not create kudo client: %w", err)
@@ -235,17 +238,7 @@ func resourceOperatorDelete(d *schema.ResourceData, m interface{}) error {
 	namespace := d.Get("operator_namespace").(string)
 	config := m.(Config)
 
-	// use the current context in kubeconfig
-	kconfig, err := clientcmd.BuildConfigFromFlags("", config.Kubeconfig)
-	if err != nil {
-		return err
-	}
-
-	// create the clientset
-	kudoClientset, err := versioned.NewForConfig(kconfig)
-	if err != nil {
-		return err
-	}
+	kudoClientset := config.RawKudoClient
 
 	propagationPolicy := metav1.DeletePropagationBackground
 	options := &metav1.DeleteOptions{

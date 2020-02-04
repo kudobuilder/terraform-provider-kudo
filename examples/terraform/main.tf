@@ -3,6 +3,12 @@ provider "kudo" {
     kudo_version = "0.10.0"
 }
 
+
+module "kubernetes_cluster" {
+    source = "./eks/"
+
+}
+
 resource "kudo_operator" "zookeeper" {
     operator_name = "zookeeper"
     skip_instance = true

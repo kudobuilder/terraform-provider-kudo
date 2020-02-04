@@ -11,10 +11,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/kudobuilder/kudo/pkg/apis/kudo/v1beta1"
-	"github.com/kudobuilder/kudo/pkg/client/clientset/versioned"
 )
 
 //TODO add all parameter values to the state, even defaults
@@ -25,6 +23,7 @@ func resourceInstance() *schema.Resource {
 		Read:   resourceInstanceRead,
 		Update: resourceInstanceUpdate,
 		Delete: resourceInstanceDelete,
+		Exists: resourceInstanceExists,
 		//Flag these parameters as "newly computed" if any of the parameters change
 		CustomizeDiff: customdiff.All(
 			customdiff.ComputedIf("pods", func(d *schema.ResourceDiff, meta interface{}) bool {
@@ -135,6 +134,16 @@ func customizeInstanceDiff(diff *schema.ResourceDiff, m interface{}) error {
 	return nil
 }
 
+func resourceInstanceExists(d *schema.ResourceData, m interface{}) (bool, error) {
+	config := m.(Config)
+
+	client := config.GetKudoClient()
+
+	_, err := client.GetInstance(d.Get("name").(string), d.Get("namespace").(string))
+
+	return err == nil, err
+}
+
 func resourceInstanceCreate(d *schema.ResourceData, m interface{}) error {
 	log.Printf("resourceInstanceCreate: %v %v\n", d, m)
 	name := d.Get("name").(string)
@@ -156,10 +165,7 @@ func resourceInstanceCreate(d *schema.ResourceData, m interface{}) error {
 	}
 
 	config := m.(Config)
-	kudoClient, err := config.GetKudoClient()
-	if err != nil {
-		return fmt.Errorf("could not create kudo client: %w", err)
-	}
+	kudoClient := config.GetKudoClient()
 
 	instance := &v1beta1.Instance{
 		ObjectMeta: metav1.ObjectMeta{
@@ -175,7 +181,7 @@ func resourceInstanceCreate(d *schema.ResourceData, m interface{}) error {
 		},
 	}
 
-	instance, err = kudoClient.InstallInstanceObjToCluster(instance, instance.Namespace)
+	instance, err := kudoClient.InstallInstanceObjToCluster(instance, instance.Namespace)
 	if err != nil {
 		return fmt.Errorf("Error installing instance: %v", err)
 	}
@@ -210,10 +216,9 @@ func resourceInstanceRead(d *schema.ResourceData, m interface{}) error {
 	}
 
 	config := m.(Config)
-	kudoClient, err := config.GetKudoClient()
-	if err != nil {
-		return fmt.Errorf("could not create kudo client: %w", err)
-	}
+
+	//if cluster is not present, mark as "need to install"
+	kudoClient := config.GetKudoClient()
 
 	instance, err := kudoClient.GetInstance(name, namespace)
 	if err != nil {
@@ -263,10 +268,8 @@ func resourceInstanceRead(d *schema.ResourceData, m interface{}) error {
 
 	// Cluster Resource
 
-	kubeClient, err := config.GetKubernetesClient()
-	if err != nil {
-		return fmt.Errorf("Error gettin Kube Client: %v", err)
-	}
+	kubeClient := config.GetKubernetesClient()
+
 	// the two common ways objects seem to be labeled
 	labelSelector1 := fmt.Sprintf("instance=%s", name)
 	labelSelector2 := fmt.Sprintf("kudo.dev/instance=%s", name)
@@ -284,14 +287,14 @@ func resourceInstanceRead(d *schema.ResourceData, m interface{}) error {
 	podNames := make([]string, 0)
 
 	//Get pods for instance (with label instance=name)
-	pods, err := kubeClient.KubeClient.CoreV1().Pods(namespace).List(listOptions1)
+	pods, err := kubeClient.CoreV1().Pods(namespace).List(listOptions1)
 	if err != nil {
 		return fmt.Errorf("Error getting pods: %v", err)
 	}
 	for _, p := range pods.Items {
 		podNames = append(podNames, p.Name)
 	}
-	pods, err = kubeClient.KubeClient.CoreV1().Pods(namespace).List(listOptions2)
+	pods, err = kubeClient.CoreV1().Pods(namespace).List(listOptions2)
 	if err != nil {
 		return fmt.Errorf("Error getting pods: %v", err)
 	}
@@ -303,14 +306,14 @@ func resourceInstanceRead(d *schema.ResourceData, m interface{}) error {
 	//Services
 	serviceNames := make([]string, 0)
 
-	svcs, err := kubeClient.KubeClient.CoreV1().Services(namespace).List(listOptions1)
+	svcs, err := kubeClient.CoreV1().Services(namespace).List(listOptions1)
 	if err != nil {
 		return fmt.Errorf("Error getting services: %v", err)
 	}
 	for _, svc := range svcs.Items {
 		serviceNames = append(serviceNames, svc.Name)
 	}
-	svcs, err = kubeClient.KubeClient.CoreV1().Services(namespace).List(listOptions2)
+	svcs, err = kubeClient.CoreV1().Services(namespace).List(listOptions2)
 	if err != nil {
 		return fmt.Errorf("Error getting services: %v", err)
 	}
@@ -323,14 +326,14 @@ func resourceInstanceRead(d *schema.ResourceData, m interface{}) error {
 	//Deployments
 	deployNames := make([]string, 0)
 
-	deploys, err := kubeClient.KubeClient.AppsV1().Deployments(namespace).List(listOptions1)
+	deploys, err := kubeClient.AppsV1().Deployments(namespace).List(listOptions1)
 	if err != nil {
 		return fmt.Errorf("Error getting deployments: %v", err)
 	}
 	for _, deploy := range deploys.Items {
 		deployNames = append(deployNames, deploy.Name)
 	}
-	deploys, err = kubeClient.KubeClient.AppsV1().Deployments(namespace).List(listOptions2)
+	deploys, err = kubeClient.AppsV1().Deployments(namespace).List(listOptions2)
 	if err != nil {
 		return fmt.Errorf("Error getting deployments: %v", err)
 	}
@@ -343,14 +346,14 @@ func resourceInstanceRead(d *schema.ResourceData, m interface{}) error {
 	//ConfigMaps
 	cmNames := make([]string, 0)
 
-	cms, err := kubeClient.KubeClient.CoreV1().ConfigMaps(namespace).List(listOptions1)
+	cms, err := kubeClient.CoreV1().ConfigMaps(namespace).List(listOptions1)
 	if err != nil {
 		return fmt.Errorf("Error getting configmaps: %v", err)
 	}
 	for _, o := range cms.Items {
 		cmNames = append(cmNames, o.Name)
 	}
-	cms, err = kubeClient.KubeClient.CoreV1().ConfigMaps(namespace).List(listOptions2)
+	cms, err = kubeClient.CoreV1().ConfigMaps(namespace).List(listOptions2)
 	if err != nil {
 		return fmt.Errorf("Error getting configmaps: %v", err)
 	}
@@ -363,14 +366,14 @@ func resourceInstanceRead(d *schema.ResourceData, m interface{}) error {
 	//StatefulSets
 	ssNames := make([]string, 0)
 
-	sss, err := kubeClient.KubeClient.AppsV1().StatefulSets(namespace).List(listOptions1)
+	sss, err := kubeClient.AppsV1().StatefulSets(namespace).List(listOptions1)
 	if err != nil {
 		return fmt.Errorf("Error getting statefulSets: %v", err)
 	}
 	for _, o := range sss.Items {
 		ssNames = append(ssNames, o.Name)
 	}
-	sss, err = kubeClient.KubeClient.AppsV1().StatefulSets(namespace).List(listOptions2)
+	sss, err = kubeClient.AppsV1().StatefulSets(namespace).List(listOptions2)
 	if err != nil {
 		return fmt.Errorf("Error getting statefulSets: %v", err)
 	}
@@ -383,14 +386,14 @@ func resourceInstanceRead(d *schema.ResourceData, m interface{}) error {
 	//PVCs
 	pvcNames := make([]string, 0)
 
-	pvcs, err := kubeClient.KubeClient.CoreV1().PersistentVolumeClaims(namespace).List(listOptions1)
+	pvcs, err := kubeClient.CoreV1().PersistentVolumeClaims(namespace).List(listOptions1)
 	if err != nil {
 		return fmt.Errorf("Error getting pvcs: %v", err)
 	}
 	for _, o := range pvcs.Items {
 		pvcNames = append(pvcNames, o.Name)
 	}
-	pvcs, err = kubeClient.KubeClient.CoreV1().PersistentVolumeClaims(namespace).List(listOptions2)
+	pvcs, err = kubeClient.CoreV1().PersistentVolumeClaims(namespace).List(listOptions2)
 	if err != nil {
 		return fmt.Errorf("Error getting statefulSets: %v", err)
 	}
@@ -436,10 +439,7 @@ func resourceInstanceUpdate(d *schema.ResourceData, m interface{}) error {
 	}
 
 	config := m.(Config)
-	kudoClient, err := config.GetKudoClient()
-	if err != nil {
-		return fmt.Errorf("could not create kudo client: %w", err)
-	}
+	kudoClient := config.GetKudoClient()
 
 	old, err := kudoClient.GetInstance(name, namespace)
 	if err != nil {
@@ -471,10 +471,8 @@ func resourceInstanceUpdate(d *schema.ResourceData, m interface{}) error {
 func waitForInstance(d *schema.ResourceData, m interface{}, name, namespace string, oldInstance *v1beta1.Instance) error {
 	//Wait for status plan to be done
 	config := m.(Config)
-	kudoClient, err := config.GetKudoClient()
-	if err != nil {
-		return fmt.Errorf("could not create kudo client: %w", err)
-	}
+	kudoClient := config.GetKudoClient()
+
 	for {
 		instance, err := kudoClient.GetInstance(name, namespace)
 		if err != nil {
@@ -508,24 +506,14 @@ func resourceInstanceDelete(d *schema.ResourceData, m interface{}) error {
 	namespace := d.Get("namespace").(string)
 	config := m.(Config)
 
-	// use the current context in kubeconfig
-	kconfig, err := clientcmd.BuildConfigFromFlags("", config.Kubeconfig)
-	if err != nil {
-		return err
-	}
-
-	// create the clientset
-	kudoClientset, err := versioned.NewForConfig(kconfig)
-	if err != nil {
-		return err
-	}
+	kudoClientset := config.RawKudoClient
 
 	propagationPolicy := metav1.DeletePropagationForeground
 	options := &metav1.DeleteOptions{
 		PropagationPolicy: &propagationPolicy,
 	}
 
-	err = kudoClientset.KudoV1beta1().Instances(namespace).Delete(name, options)
+	err := kudoClientset.KudoV1beta1().Instances(namespace).Delete(name, options)
 	if err != nil {
 		return err
 	}
@@ -547,10 +535,8 @@ func resourceInstanceDelete(d *schema.ResourceData, m interface{}) error {
 	pvcs, ok := d.GetOk("pvcs")
 	if ok {
 		pvcList := pvcs.([]interface{})
-		kubeClient, err := config.GetKubernetesClient()
-		if err != nil {
-			return err
-		}
+		kubeClient := config.GetKubernetesClient()
+
 		propagationPolicy := metav1.DeletePropagationForeground
 		options := &metav1.DeleteOptions{
 			PropagationPolicy: &propagationPolicy,
@@ -558,10 +544,10 @@ func resourceInstanceDelete(d *schema.ResourceData, m interface{}) error {
 
 		for _, pvc := range pvcList {
 
-			err = kubeClient.KubeClient.CoreV1().PersistentVolumeClaims(namespace).Delete(pvc.(string), options)
+			err = kubeClient.CoreV1().PersistentVolumeClaims(namespace).Delete(pvc.(string), options)
 			wait := true
 			for wait {
-				_, err = kubeClient.KubeClient.CoreV1().PersistentVolumeClaims(namespace).Get(pvc.(string), metav1.GetOptions{})
+				_, err = kubeClient.CoreV1().PersistentVolumeClaims(namespace).Get(pvc.(string), metav1.GetOptions{})
 				if errors.IsNotFound(err) {
 					wait = false
 				}

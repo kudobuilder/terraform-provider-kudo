@@ -20,6 +20,7 @@ require (
 	github.com/vmihailenco/msgpack v4.0.4+incompatible // indirect
 	golang.org/x/tools/gopls v0.2.2 // indirect
 	k8s.io/api v0.0.0-20191025225708-5524a3672fbb
+	k8s.io/apiextensions-apiserver v0.0.0-20191016113550-5357c4baaf65
 	k8s.io/apimachinery v0.0.0-20191028221656-72ed19daf4bb
 	k8s.io/client-go v12.0.0+incompatible
 	k8s.io/kube-aggregator v0.0.0-20191025230902-aa872b06629d

@@ -82,14 +82,14 @@ This example shows several limitations with managing workloads:
 
 ### Terraform
 
-[Terraform](https://www.terraform.io/) provides a language to define the architecture of the applications (or infrastructure) being deployed in such a way that dependencies are clearly defined by created a [Dependency Graph](https://www.terraform.io/docs/internals/graph.html).  This clear graph allows Terraform to orchestrate the deployment of objects in a way that ensures all dependencies of an object are ready and healthy before proceeding. The KUDO provider uses the active [Plan](https://kudo.dev/docs/developing-operators/plans.html) that was run for the instance to track its status.  When the active plan gets marked as complete, the provider knows the object is healthy and can proceed to the next object.
+[Terraform](https://www.terraform.io/) provides a language to define the architecture of the applications (or infrastructure) being deployed in such a way that dependencies are clearly defined by created a [Dependency Graph](https://www.terraform.io/docs/internals/graph.html).  This clear graph allows Terraform to orchestrate the deployment of objects in a way that ensures all dependencies of an object are ready and healthy before proceeding. The KUDO provider uses the active [Plan](https://kudo.dev/docs/developing-operators/plans.html) that was run for the instance to track its status.  When the active plan gets marked as completed, the provider knows the object is healthy and can proceed to the next object.
 
 The KUDO provider currently supports two types of resources: `kudo_operator` and `kudo_instance`.  Future support for `kudo_repositories` is planned.
 
 
 ### KUDO Terraform Provider
 
-In order for these two instances to be tied together effectively, we need the ability to provide references another `Instances`'s paramaters, our its current state inside the cluster after becoming healthy.  As described in the [Terraform Docs](https://www.terraform.io/docs/configuration/resources.html), the resources defined in terraform allow for referencing both user provided values as well as `computed` values that are only calculated by the provider after installation/updating.  
+In order for these two instances to be tied together effectively, we need the ability to provide references to another `Instances`'s paramaters, its current state inside the cluster after becoming healthy.  As described in the [Terraform Docs](https://www.terraform.io/docs/configuration/resources.html), the resources defined in terraform allow for referencing both user provided values as well as `computed` values that are only calculated by the provider after installation/updating.  
 
 The KUDO Provider provides a list of all parameter values (both default and instance specific), as well as a list of all `pods`, `deployments`, `services`, `statefulsets` and `pvcs`.  These computed values can be used to generate connection strings for other `Instance`s to use.
 
@@ -391,7 +391,7 @@ kudo_instance.kafka: Creation complete after 54s [id=default_pipes]
 Apply complete! Resources: 4 added, 0 changed, 0 destroyed.
 ```
 
-Note that the kafka instance was created after the zookeeper instance's creation was complete.  This was ensured by Terraform's dependency graph. Looking at the kafka instance we can see the correct pods were used for the connection string:
+Note that the kafka instance was created after the zookeeper instance's creation was completed.  This was ensured by Terraform's dependency graph. Looking at the kafka instance we can see the correct pods were used for the connection string:
 
 ```bash
 $ kubectl get instances pipes -o jsonpath="{ .spec.parameters.ZOOKEEPER_URI }"

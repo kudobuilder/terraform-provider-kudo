@@ -13,6 +13,11 @@ jobs:
       with:
           version: "v0.7.0"
           image: kindest/node:v${{ matrix.kubernetes }}
+    - uses: actions/setup-go@v2-beta
+      with:
+        go-version: '1.13' # The Go version to download (if necessary) and use.
+    - run: go version
+    - run: kubectl version
     - name: Testing
       run: |
         go test ./kudo

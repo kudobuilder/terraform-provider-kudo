@@ -52,10 +52,6 @@ func TestKudoOperator_create(t *testing.T) {
 	})
 }
 
-func TestKudoOperator_update(t *testing.T) {
-
-}
-
 func testOperator_basic(name string) string {
 	return fmt.Sprintf(`
 resource "kudo_operator" "test" {

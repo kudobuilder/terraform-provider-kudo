@@ -2,3 +2,4 @@
 **.tfstate.backup
 **.terraform/
 **terraform-provider-kudo
+**.code-workspace

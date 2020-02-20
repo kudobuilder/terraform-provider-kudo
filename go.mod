@@ -16,6 +16,7 @@ require (
 	github.com/pierrec/lz4 v2.3.0+incompatible // indirect
 	github.com/robfig/cron v1.2.0
 	github.com/spf13/afero v1.2.2
+	github.com/stretchr/testify v1.4.0
 	github.com/ulikunitz/xz v0.5.6 // indirect
 	github.com/vmihailenco/msgpack v4.0.4+incompatible // indirect
 	golang.org/x/tools/gopls v0.2.2 // indirect

@@ -11,6 +11,7 @@ import (
 
 	"github.com/kudobuilder/kudo/pkg/kudoctl/env"
 	"github.com/kudobuilder/kudo/pkg/kudoctl/kudohome"
+	"github.com/kudobuilder/kudo/pkg/kudoctl/packages"
 	pkgresolver "github.com/kudobuilder/kudo/pkg/kudoctl/packages/resolver"
 	"github.com/kudobuilder/kudo/pkg/kudoctl/util/kudo"
 	"github.com/kudobuilder/kudo/pkg/kudoctl/util/repo"
@@ -63,7 +64,24 @@ func resourceOperator() *schema.Resource {
 	}
 }
 
-//TODO - Create and Update functions do the same things
+func getOperatorVersionFromRepo(d *schema.ResourceData, m interface{}) (*packages.Package, error) {
+
+	repoName := d.Get("repo").(string)
+	opearatorVersion := d.Get("operator_version").(string)
+	name := d.Get("operator_name").(string)
+	// initialization of filesystem for all commands
+	fs := afero.NewOsFs()
+
+	repository, err := repo.ClientFromSettings(fs, kudohome.Home(env.DefaultKudoHome), repoName)
+	if err != nil {
+		return nil, fmt.Errorf("could not build operator repository: %w", err)
+	}
+	d.Set("repo", repository.Config.Name)
+
+	resolver := pkgresolver.New(repository)
+	//not sure if the versions are used here or not.
+	return resolver.Resolve(name, "", opearatorVersion)
+}
 
 func resourceOperatorCreate(d *schema.ResourceData, m interface{}) error {
 	log.Printf("resourceOperatorCreate: %v %v\n", d, m)
@@ -82,20 +100,9 @@ func resourceOperatorCreate(d *schema.ResourceData, m interface{}) error {
 	log.Printf("[%v] Repo: %v", name, repoName)
 	log.Printf("[%v] Operator Version: %v", name, version)
 	config := m.(Config)
-
-	// initialization of filesystem for all commands
-	fs := afero.NewOsFs()
-
-	repository, err := repo.ClientFromSettings(fs, kudohome.Home(env.DefaultKudoHome), repoName)
-	if err != nil {
-		return fmt.Errorf("could not build operator repository: %w", err)
-	}
-	d.Set("repo", repository.Config.Name)
 	kudoClient := config.GetKudoClient()
 
-	resolver := pkgresolver.New(repository)
-	//not sure if the versions are used here or not.
-	pkg, err := resolver.Resolve(name, "", version)
+	pkg, err := getOperatorVersionFromRepo(d, m)
 
 	if err != nil {
 		return fmt.Errorf("failed to resolve operator package for: %s %w", name, err)
@@ -103,8 +110,8 @@ func resourceOperatorCreate(d *schema.ResourceData, m interface{}) error {
 	log.Printf("[KUDO] [%v] Version pulled from repo: %+v", name, pkg.Resources.OperatorVersion.Spec.Version)
 
 	d.Set("operator_version", pkg.Resources.OperatorVersion.Spec.Version)
-	d.SetId(fmt.Sprintf("%v-%v-%v", namespace, name, pkg.Resources.OperatorVersion.Spec.Version))
-	log.Printf("[KUDO] [%v] id set okay!")
+	d.SetId(id(pkg.Resources.OperatorVersion.ObjectMeta.Name, namespace))
+	log.Printf("[KUDO] [%v] id set okay!", d.Id())
 	d.Set("object_name", pkg.Resources.OperatorVersion.ObjectMeta.Name)
 
 	err = kudo.InstallPackage(kudoClient, pkg.Resources, skipInstance, name, namespace, parameters)
@@ -112,8 +119,6 @@ func resourceOperatorCreate(d *schema.ResourceData, m interface{}) error {
 		log.Printf("[KUDO] [%v] Error installing package: %v", name, err)
 		return err
 	}
-	log.Println("OperatorCreate: [%v] ", name)
-	printOperatorConfig(d)
 	return resourceOperatorRead(d, m)
 }
 
@@ -152,37 +157,21 @@ func resourceOperatorRead(d *schema.ResourceData, m interface{}) error {
 		return nil
 	}
 
-	c := m.(Config)
+	config := m.(Config)
+	client := config.GetKudoClient()
 
-	kudoClient := c.GetKudoClient()
-
-	//if cluster is not present, mark as "need to install"
-	ov, err := kudoClient.GetOperatorVersion(ovName, namespace)
-	if err != nil || ov == nil {
-		//error getting
-		//not present anymore
-		log.Printf("[KUDO] could not an OV with name %v in namespace %v", ovName, namespace)
-		d.Partial(true)
+	ov, err := client.GetOperatorVersion(ovName, namespace)
+	if err != nil {
+		return err
+	}
+	if ov == nil {
 		d.SetId("")
-		d.Partial(false)
 		return nil
 	}
 
-	version = ov.Spec.Version
-	// if ov.Spec.Version != nil {
-	// 	version =
-	// }
-	opName := ov.Spec.Operator.Name
-	// if ov.Spec.Operator != nil {
-	// 	opName = ov.Spec.Operator.Name
-	// }
-	d.Partial(true)
-	d.Set("operator_version", version)
-	d.Set("operator_name", opName)
+	d.Set("operator_version", ov.Spec.Version)
+	d.Set("operator_name", ov.Spec.Operator.Name)
 	d.Set("object_name", ov.Name)
-	d.Partial(false)
-	log.Println("OperatorRead: ")
-	printOperatorConfig(d)
 	return nil
 }
 
@@ -194,7 +183,6 @@ func resourceOperatorUpdate(d *schema.ResourceData, m interface{}) error {
 	version := d.Get("operator_version").(string)
 	// ovName := d.Get("operator_version_name").(string)
 	parameters := make(map[string]string) //d.Get("parameters").(map[string]string)
-	skipInstance := d.Get("skip_instance").(bool)
 
 	config := m.(Config)
 
@@ -211,10 +199,6 @@ func resourceOperatorUpdate(d *schema.ResourceData, m interface{}) error {
 	d.Partial(false)
 	kudoClient := config.GetKudoClient()
 
-	if err != nil {
-		return fmt.Errorf("could not create kudo client: %w", err)
-	}
-
 	resolver := pkgresolver.New(repository)
 	//not sure if the versions are used here or not.
 	pkg, err := resolver.Resolve(name, "", version)
@@ -222,7 +206,8 @@ func resourceOperatorUpdate(d *schema.ResourceData, m interface{}) error {
 		return fmt.Errorf("failed to resolve operator package for: %s %w", name, err)
 	}
 
-	err = kudo.InstallPackage(kudoClient, pkg.Resources, skipInstance, name, namespace, parameters)
+	// err = kudo.UpgradeOperatorVersion(kudoClient, pkg.Resources.OperatorVersion, name, namespace, parameters)
+	err = kudo.InstallPackage(kudoClient, pkg.Resources, true, name, namespace, parameters)
 	if err != nil {
 		return err
 	}
@@ -231,7 +216,7 @@ func resourceOperatorUpdate(d *schema.ResourceData, m interface{}) error {
 	return resourceOperatorRead(d, m)
 }
 
-//TODO implement unistall here
+//TODO implement uninstall here
 func resourceOperatorDelete(d *schema.ResourceData, m interface{}) error {
 	log.Printf("resourceOperatorCreate: %v %v\n", d, m)
 	name := d.Get("object_name").(string)

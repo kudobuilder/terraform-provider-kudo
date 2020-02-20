@@ -20,5 +20,5 @@ jobs:
     - run: kubectl version
     - name: Testing
       run: |
-        go test ./kudo
-        TF_ACC=true go test ./kudo
+        go test ./kudo -v
+        TF_ACC=true go test ./kudo -v

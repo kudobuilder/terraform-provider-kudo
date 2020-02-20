@@ -1,6 +1,8 @@
 # Terraform Provider for KUDO
 
 
+![Integration Tests](https://github.com/runyontr/terraform-provider-kudo/workflows/Integration%20Tests/badge.svg)
+
 ## Problem Statement
 
 * KUDO doesn't orchestrate meta-apps (applications composed of KUDO Opeartors)

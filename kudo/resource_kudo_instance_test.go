@@ -76,12 +76,12 @@ func TestKudoInstance_create(t *testing.T) {
 		// CheckDestroy:  testAccCheckKudoOperatorDestroy,
 		Steps: []resource.TestStep{
 			{
-				Config: testInstance_zookeeper("zook", 3),
+				Config: testInstance_zookeeper("zook", 1),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					testAccCheckInstanceExists("zook", "default", instance),
 					// Right number of pods
 					// resource.TestCheck
-					testAccCheckInstancePods("kudo_instance.test", instance, 3),
+					testAccCheckInstancePods("kudo_instance.test", instance, 1),
 					resource.TestCheckResourceAttr("kudo_instance.test", "name", "zook"),
 					// correct metadata
 					resource.TestCheckResourceAttr("kudo_instance.test", "namespace", "default"),

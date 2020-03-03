@@ -102,56 +102,6 @@ func TestKudoInstance_createRedis(t *testing.T) {
 	})
 }
 
-func TestKudoInstance_createZookeeper(t *testing.T) {
-	var instance *v1beta1.Instance
-
-	resource.Test(t, resource.TestCase{
-		// PreCheck:      func() { testAccPreCheck(t) },
-		IDRefreshName: "kudo_instance.test",
-		Providers:     testAccProviders,
-		// CheckDestroy:  testAccCheckKudoOperatorDestroy,
-		Steps: []resource.TestStep{
-			{
-				Config: testInstance_zookeeper("zook", 1),
-				Check: resource.ComposeAggregateTestCheckFunc(
-					testAccCheckInstanceExists("zook", "default", instance),
-					// Right number of pods
-					// resource.TestCheck
-					testAccCheckInstancePods("kudo_instance.test", instance, 1),
-					resource.TestCheckResourceAttr("kudo_instance.test", "name", "zook"),
-					// correct metadata
-					resource.TestCheckResourceAttr("kudo_instance.test", "namespace", "default"),
-					resource.TestCheckResourceAttr("kudo_instance.test", "operator_version_name", "zookeeper-0.3.0"),
-					resource.TestCheckResourceAttr("kudo_instance.test", "operator_version_namespace", "default"),
-					resource.TestCheckResourceAttr("kudo_instance.test", "operator_version_name", "zookeeper-0.3.0"),
-					// Parameter values
-
-					// output_parameters
-
-					// testAccCheckMetaAnnotations(&conf.ObjectMeta, map[string]string{"TestAnnotationOne": "one", "TestAnnotationTwo": "two"}),
-
-				),
-			},
-		},
-	})
-}
-
-func testInstance_zookeeper(name string, nodes int) string {
-	return fmt.Sprintf(`
-resource "kudo_operator" "test" {
-    operator_name = "zookeeper"
-}
-
-resource "kudo_instance" "test" {
-	name = "%s"
-	parameters = {
-		"NODE_COUNT": %d
-	}
-	operator_version_name = kudo_operator.test.object_name
-}
-`, name, nodes)
-}
-
 func testInstance_redis(name string, nodes int) string {
 	return fmt.Sprintf(`
 resource "kudo_operator" "test" {

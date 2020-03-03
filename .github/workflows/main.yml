@@ -21,4 +21,5 @@ jobs:
     - run: kubectl get nodes -o yaml
     - name: Testing
       run: |
-        go test ./kudo -v -timeout 5m
+        go test ./kudo -v -timeout 20m
+        TF_ACC=true go test ./kudo -v -timeout 20m

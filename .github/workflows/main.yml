@@ -22,4 +22,3 @@ jobs:
     - name: Testing
       run: |
         go test ./kudo -v -timeout 20m
-        TF_ACC=true go test ./kudo -v -timeout 20m

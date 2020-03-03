@@ -6,7 +6,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        kubernetes: [1.17.3]
+        kubernetes: [1.17.2]
     steps:
     - uses: actions/checkout@master
     - uses: engineerd/setup-kind@v0.3.0

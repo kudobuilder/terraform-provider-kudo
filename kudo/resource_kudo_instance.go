@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"time"
@@ -11,8 +12,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kudobuilder/kudo/pkg/apis/kudo/v1beta1"
+	"github.com/kudobuilder/kudo/pkg/client/clientset/versioned"
 )
 
 //TODO add all parameter values to the state, even defaults
@@ -66,6 +69,10 @@ func resourceInstance() *schema.Resource {
 				Type:     schema.TypeString,
 				Optional: true,
 				Default:  "default",
+			},
+			"labels": &schema.Schema{
+				Type:     schema.TypeMap,
+				Optional: true,
 			},
 			"operator_version_name": &schema.Schema{
 				Type:     schema.TypeString,
@@ -156,6 +163,17 @@ func resourceInstanceCreate(d *schema.ResourceData, m interface{}) error {
 	} else {
 		d.Set("operator_version_namespace", operatorVersionNamespace)
 	}
+	//
+	labels := make(map[string]string)
+	inLabels, ok := d.GetOk("labels")
+	if ok {
+		for k, v := range inLabels.(map[string]interface{}) {
+			s, o := v.(string)
+			if o {
+				labels[k] = s
+			}
+		}
+	}
 
 	// operatorVersionNamespace := d.Get("operator_version_namespace").(string)
 	parametersI := d.Get("parameters").(map[string]interface{})
@@ -171,6 +189,7 @@ func resourceInstanceCreate(d *schema.ResourceData, m interface{}) error {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
+			Labels:    labels,
 		},
 		Spec: v1beta1.InstanceSpec{
 			Parameters: parameters,
@@ -228,6 +247,11 @@ func resourceInstanceRead(d *schema.ResourceData, m interface{}) error {
 		d.SetId("")
 		return nil //not present
 	}
+	labels := make(map[string]string)
+	for k, v := range instance.Labels {
+		labels[k] = v
+	}
+	d.Set("labels", labels)
 
 	operatorVersionName = instance.Spec.OperatorVersion.Name
 	operatorVersionNamespace = instance.Spec.OperatorVersion.Namespace
@@ -453,19 +477,71 @@ func resourceInstanceUpdate(d *schema.ResourceData, m interface{}) error {
 	for k := range parameters {
 		same = same && parameters[k] == old.Spec.Parameters[k]
 	}
+
+	//
+	labels := make(map[string]string)
+	inLabels, ok := d.GetOk("labels")
+	if ok {
+
+		for k, v := range inLabels.(map[string]interface{}) {
+			s, o := v.(string)
+			if o {
+				labels[k] = s
+			}
+		}
+	}
+	newPlan := !same
+
+	//check labels
+	for k, v := range old.Labels {
+		same = same && labels[k] == v
+	}
+	for k, v := range labels {
+		same = same && old.Labels[k] == v
+	}
+
 	if same {
 		//everything was the same, so don't actually update
 		return resourceInstanceRead(d, m)
 	}
-
-	err = kudoClient.UpdateInstance(name, namespace, &operatorVersionName, parameters)
+	err = patchInstance(config.RawKudoClient, name, namespace, parameters, labels, operatorVersionName)
+	// err = kudoClient.UpdateInstance(name, namespace, &operatorVersionName, parameters)
 
 	if err != nil {
 		return fmt.Errorf("Error updating instance: %v", err)
 	}
+	if newPlan { // change in parameters trigger a new plan
 
-	return waitForInstance(d, m, name, namespace, old)
+		return waitForInstance(d, m, name, namespace, old)
 
+	}
+	return resourceInstanceRead(d, m)
+
+}
+
+func patchInstance(c *versioned.Clientset, instanceName, namespace string, parameters, labels map[string]string, ovName string) error {
+	instanceSpec := v1beta1.InstanceSpec{}
+	metadata := metav1.ObjectMeta{}
+	if parameters != nil {
+		instanceSpec.Parameters = parameters
+	}
+	instanceSpec.OperatorVersion.Name = ovName
+	if labels != nil {
+		metadata.Labels = labels
+	}
+	serializedPatch, err := json.Marshal(struct {
+		Spec     *v1beta1.InstanceSpec `json:"spec"`
+		Metadata *metav1.ObjectMeta    `json:"metadata"`
+	}{
+		&instanceSpec,
+		&metadata,
+	})
+	if err != nil {
+		return err
+	}
+
+	_, err = c.KudoV1beta1().Instances(namespace).Patch(instanceName, types.MergePatchType, serializedPatch)
+	return err
 }
 
 func waitForInstance(d *schema.ResourceData, m interface{}, name, namespace string, oldInstance *v1beta1.Instance) error {

@@ -14,6 +14,7 @@ var testAccProvider *schema.Provider
 
 func init() {
 	testAccProvider = Provider()
+	testAccProvider.Schema["kudo_version"].Default = "0.10.0"
 	testAccProviders = map[string]terraform.ResourceProvider{
 		"kudo": testAccProvider,
 		// "kubernetes": kubernetes.Provider(),

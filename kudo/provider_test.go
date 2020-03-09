@@ -14,7 +14,7 @@ var testAccProvider *schema.Provider
 
 func init() {
 	testAccProvider = Provider()
-	testAccProvider.Schema["kudo_version"].Default = "0.10.0"
+	testAccProvider.Schema["kudo_version"].Default = "0.10.0" //Annoying we have to do this
 	testAccProviders = map[string]terraform.ResourceProvider{
 		"kudo": testAccProvider,
 		// "kubernetes": kubernetes.Provider(),
@@ -35,8 +35,12 @@ func TestProvider_configure(t *testing.T) {
 
 	rc := terraform.NewResourceConfigRaw(map[string]interface{}{})
 	p := Provider()
+	p.Schema["kudo_version"].Default = "0.10.0" //Annoying we have to do this
 	err := p.Configure(rc)
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	//Check to make sure the provider is healthy
+
 }

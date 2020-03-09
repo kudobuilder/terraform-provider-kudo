@@ -24,6 +24,7 @@ import (
 	"github.com/kudobuilder/kudo/pkg/kudoctl/kudoinit"
 	"github.com/kudobuilder/kudo/pkg/kudoctl/kudoinit/setup"
 	"github.com/kudobuilder/kudo/pkg/kudoctl/util/kudo"
+	"github.com/kudobuilder/kudo/pkg/version"
 
 	"github.com/mitchellh/go-homedir"
 )
@@ -349,6 +350,8 @@ func kudoConfigureFunc(data *schema.ResourceData, terraformVersion string) (inte
 	}
 	if v, ok := data.GetOk("kudo_version"); ok {
 		c.Version = v.(string)
+	} else {
+		c.Version = version.Get().String()
 	}
 	if v, ok := data.GetOk("wait"); ok {
 		c.Wait = v.(bool)

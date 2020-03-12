@@ -22,7 +22,7 @@ resource "kudo_operator" "kafka" {
 resource "kudo_instance" "zk1" {
     name = "zook"
     parameters = {
-        "NODE_COUNT": 5,
+        "NODE_COUNT": 3,
     }
     operator_version_name = kudo_operator.zookeeper.object_name
 }

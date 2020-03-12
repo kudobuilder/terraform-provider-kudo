@@ -210,7 +210,7 @@ func TestKudoInstance_createRedis(t *testing.T) {
 					testAccCheckInstanceExists("redis", "default", instance),
 					// Right number of pods
 					// resource.TestCheck
-					testAccCheckInstancePods("kudo_instance.test", instance, 2*count),
+					testAccCheckInstancePods("kudo_instance.test", instance, 2*count+1),
 					resource.TestCheckResourceAttr("kudo_instance.test", "name", "redis"),
 					// correct metadata
 					resource.TestCheckResourceAttr("kudo_instance.test", "namespace", "default"),

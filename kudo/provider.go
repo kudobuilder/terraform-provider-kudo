@@ -7,11 +7,13 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-sdk/helper/logging"
 	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
 
 	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/dynamic"
 	kubernetes "k8s.io/client-go/kubernetes"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -337,11 +339,6 @@ func kudoConfigureFunc(data *schema.ResourceData, terraformVersion string) (inte
 
 	//KUDO installation configurations
 
-	//fix this for later.
-	// When empty, we get this error
-	/*
-		2020-01-26T22:14:52.864-0500 [DEBUG] plugin.terraform-provider-kudo: 2020/01/26 22:14:52 [ERROR] There was an error running the install of KUDO: prerequisites: failed to install: Error when creating resource selfsigned-issuer/kudo-system. the server could not find the requested resource
-	*/
 	if v, ok := data.GetOk("image"); ok {
 		c.KudoImage = v.(string)
 	}
@@ -379,9 +376,35 @@ func kudoConfigureFunc(data *schema.ResourceData, terraformVersion string) (inte
 
 	//try an install, but don't care if it succeeds or not so plans
 	// can be run without an active cluster
-	setup.Install(client, opts, false)
+	err = setup.Install(client, opts, false)
 
-	return c, nil
+	if err != nil {
+		return c, err
+	}
+
+	//Wait for health of controller
+
+	return c, waitForControllerHealth(client, opts, time.Minute)
+}
+
+func waitForControllerHealth(client *kube.Client, opts kudoinit.Options, timeout time.Duration) error {
+
+	start := time.Now()
+	for {
+		time.Sleep(50 * time.Millisecond)
+		ss, err := client.KubeClient.AppsV1().StatefulSets(opts.Namespace).Get("kudo-controller-manager", metav1.GetOptions{})
+		if err != nil {
+			log.Printf("[DEBUG] Error getting kudo controller: %v\n", err)
+			continue
+		}
+		if ss.Status.ReadyReplicas == ss.Status.CurrentReplicas {
+			//Healthy!
+			return nil
+		}
+		if time.Since(start) > timeout {
+			return fmt.Errorf("timed out waiting for healthy KUDO controller")
+		}
+	}
 }
 
 func tryLoadingConfigFile(d *schema.ResourceData) (*restclient.Config, error) {

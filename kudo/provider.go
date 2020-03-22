@@ -155,7 +155,7 @@ func Provider() *schema.Provider {
 			"wait": &schema.Schema{
 				Type:        schema.TypeBool,
 				Optional:    true,
-				Default:     false,
+				Default:     true,
 				Description: "Block until KUDO manager is running and ready to recieve requests",
 			},
 			"wait_timeout": &schema.Schema{
@@ -374,17 +374,45 @@ func kudoConfigureFunc(data *schema.ResourceData, terraformVersion string) (inte
 	opts := c.ToKUDOOpts()
 	log.Printf("[DEBUG] KUDO Opts: %+v", opts)
 
-	//try an install, but don't care if it succeeds or not so plans
-	// can be run without an active cluster
-	err = setup.Install(client, opts, false)
-
+	//check for valid Kubernetes cluster.  If not, write error and return
+	nodes, err := client.KubeClient.CoreV1().Nodes().List(metav1.ListOptions{})
 	if err != nil {
-		return c, err
+		if c.Wait {
+			startTime := time.Now()
+			for err != nil && time.Now().Before(startTime.Add(time.Duration(c.WaitTimeout)*time.Second)) {
+				time.Sleep(time.Second)
+				nodes, err = client.KubeClient.CoreV1().Nodes().List(metav1.ListOptions{})
+			}
+			if err == nil {
+				return c, waitForControllerHealth(client, opts, time.Duration(c.WaitTimeout)*time.Second)
+			}
+		}
+		log.Printf("[WARN] Unhealthy Kube cluster: %v", err)
+		return c, nil
+	}
+	if len(nodes.Items) == 0 {
+		log.Printf("[WARN] No nodes available on cluster.")
 	}
 
+	//try an install, but don't care if it succeeds or not so plans
+	// can be run without an active cluster
+
+	err = setup.Install(client, opts, false)
+
+	if c.Wait {
+		startTime := time.Now()
+		for err != nil && time.Now().Before(startTime.Add(time.Duration(c.WaitTimeout)*time.Second)) {
+			time.Sleep(time.Second)
+			err = setup.Install(client, opts, false)
+		}
+		if err == nil {
+			return c, waitForControllerHealth(client, opts, time.Duration(c.WaitTimeout)*time.Second)
+		}
+		return c, err
+	}
+	return c, err
 	//Wait for health of controller
 
-	return c, waitForControllerHealth(client, opts, time.Minute)
 }
 
 func waitForControllerHealth(client *kube.Client, opts kudoinit.Options, timeout time.Duration) error {
@@ -402,7 +430,8 @@ func waitForControllerHealth(client *kube.Client, opts kudoinit.Options, timeout
 			return nil
 		}
 		if time.Since(start) > timeout {
-			return fmt.Errorf("timed out waiting for healthy KUDO controller")
+			log.Printf("[WARN] Timeout waiting for KUDO controller.")
+			return fmt.Errorf("Timeout waiting for healthy KUDO controller")
 		}
 	}
 }

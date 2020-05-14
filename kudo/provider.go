@@ -382,6 +382,10 @@ func kudoConfigureFunc(data *schema.ResourceData, terraformVersion string) (inte
 			for err != nil && time.Now().Before(startTime.Add(time.Duration(c.WaitTimeout)*time.Second)) {
 				time.Sleep(time.Second)
 				nodes, err = client.KubeClient.CoreV1().Nodes().List(metav1.ListOptions{})
+				if err == nil && len(nodes.Items) == 0 {
+					log.Printf("[WARN] No nodes to run controller")
+					return c, nil
+				}
 			}
 			if err == nil {
 				return c, waitForControllerHealth(client, opts, time.Duration(c.WaitTimeout)*time.Second)
@@ -405,6 +409,9 @@ func kudoConfigureFunc(data *schema.ResourceData, terraformVersion string) (inte
 			time.Sleep(time.Second)
 			err = setup.Install(client, opts, false)
 		}
+		if len(nodes.Items) == 0 && err == nil {
+			return c, nil
+		}
 		if err == nil {
 			return c, waitForControllerHealth(client, opts, time.Duration(c.WaitTimeout)*time.Second)
 		}
@@ -419,7 +426,7 @@ func waitForControllerHealth(client *kube.Client, opts kudoinit.Options, timeout
 
 	start := time.Now()
 	for {
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(500 * time.Millisecond)
 		ss, err := client.KubeClient.AppsV1().StatefulSets(opts.Namespace).Get("kudo-controller-manager", metav1.GetOptions{})
 		if err != nil {
 			log.Printf("[DEBUG] Error getting kudo controller: %v\n", err)
@@ -431,7 +438,7 @@ func waitForControllerHealth(client *kube.Client, opts kudoinit.Options, timeout
 		}
 		if time.Since(start) > timeout {
 			log.Printf("[WARN] Timeout waiting for KUDO controller.")
-			return fmt.Errorf("Timeout waiting for healthy KUDO controller")
+			return nil // fmt.Errorf("Timeout waiting for healthy KUDO controller")
 		}
 	}
 }

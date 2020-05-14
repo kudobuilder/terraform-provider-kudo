@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-sdk/helper/schema"
 	"github.com/spf13/afero"
@@ -114,7 +115,7 @@ func resourceOperatorCreate(d *schema.ResourceData, m interface{}) error {
 	log.Printf("[KUDO] [%v] id set okay!", d.Id())
 	d.Set("object_name", pkg.Resources.OperatorVersion.ObjectMeta.Name)
 
-	err = kudo.InstallPackage(kudoClient, pkg.Resources, skipInstance, name, namespace, parameters)
+	err = kudo.InstallPackage(kudoClient, pkg.Resources, skipInstance, name, namespace, parameters, true, 30*time.Second)
 	if err != nil {
 		log.Printf("[KUDO] [%v] Error installing package: %v", name, err)
 		return err
@@ -207,7 +208,7 @@ func resourceOperatorUpdate(d *schema.ResourceData, m interface{}) error {
 	}
 
 	// err = kudo.UpgradeOperatorVersion(kudoClient, pkg.Resources.OperatorVersion, name, namespace, parameters)
-	err = kudo.InstallPackage(kudoClient, pkg.Resources, true, name, namespace, parameters)
+	err = kudo.InstallPackage(kudoClient, pkg.Resources, true, name, namespace, parameters, true, 30*time.Second)
 	if err != nil {
 		return err
 	}

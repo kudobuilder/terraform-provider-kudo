@@ -38,13 +38,12 @@ func TestKudoOperator_create(t *testing.T) {
 			{
 				Config: testOperator_basic("kafka"),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					testAccCheckOperatorExists("kafka-1.2.0", "default"),
-					resource.TestCheckResourceAttr("kudo_operator.test", "object_name", "kafka-1.2.0"),
+					testAccCheckOperatorExists("kafka-1.3.0", "default"),
+					resource.TestCheckResourceAttr("kudo_operator.test", "object_name", "kafka-1.3.1"),
 					resource.TestCheckResourceAttr("kudo_operator.test", "operator_name", "kafka"),
-					resource.TestCheckResourceAttr("kudo_operator.test", "operator_version", "1.2.0"),
+					resource.TestCheckResourceAttr("kudo_operator.test", "operator_version", "1.3.1"),
 					// testAccCheckMetaAnnotations(&conf.ObjectMeta, map[string]string{"TestAnnotationOne": "one", "TestAnnotationTwo": "two"}),
-					resource.TestCheckResourceAttr("kudo_operator.test", "id", id("kafka-1.2.0", "default")),
-					resource.TestCheckResourceAttr("kudo_operator.test", "skip_instance", "true"),
+					resource.TestCheckResourceAttr("kudo_operator.test", "id", id("kafka-1.3.1", "default")),
 					resource.TestCheckResourceAttr("kudo_operator.test", "repo", "community"),
 				),
 			},

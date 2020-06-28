@@ -11,16 +11,6 @@ build:
 	mkdir -p ${PLUGIN_DIR}
 	go build -o ${PLUGIN_DIR}${BINARY} ./kudo
 
-terraform-init: build
-	cd terraform; ${LOGGING} terraform init;
-
-terraform-plan: terraform-init
-	cd terraform; ${LOGGING} terraform plan
-
-terraform-apply: terraform-plan
-	cd terraform; ${LOGGING} terraform apply
-
-
 kudo-clean:
 	kubectl delete ns kudo-system
 	kubectl delete crd instances.kudo.dev operators.kudo.dev operatorversions.kudo.dev

@@ -241,7 +241,9 @@ func resourceInstanceRead(d *schema.ResourceData, m interface{}) error {
 
 	instance, err := kudoClient.GetInstance(name, namespace)
 	if err != nil {
-		return fmt.Errorf("Error getting instance: %w", err)
+		d.SetId("")
+		return nil
+		// return fmt.Errorf("Error getting instance: %w", err)
 	}
 	if instance == nil {
 		d.SetId("")
@@ -267,6 +269,7 @@ func resourceInstanceRead(d *schema.ResourceData, m interface{}) error {
 
 	//Set defaults from
 	for _, param := range ov.Spec.Parameters {
+
 		if param.Default != nil {
 			parameters[param.Name] = *param.Default
 		}
@@ -309,20 +312,24 @@ func resourceInstanceRead(d *schema.ResourceData, m interface{}) error {
 
 	//Pods
 	podNames := make([]string, 0)
-
+	log.Printf("Searching for Pods in namespace=%v\n", namespace)
 	//Get pods for instance (with label instance=name)
 	pods, err := kubeClient.CoreV1().Pods(namespace).List(listOptions1)
 	if err != nil {
 		return fmt.Errorf("Error getting pods: %v", err)
 	}
+	log.Printf("Found %v pods with label instance=%v:\n", len(pods.Items), name)
 	for _, p := range pods.Items {
+		log.Printf("Pod: %v\n", p.Name)
 		podNames = append(podNames, p.Name)
 	}
 	pods, err = kubeClient.CoreV1().Pods(namespace).List(listOptions2)
+	log.Printf("Found %v pods with label kudo.dev/instance=%v:\n", len(pods.Items), name)
 	if err != nil {
 		return fmt.Errorf("Error getting pods: %v", err)
 	}
 	for _, p := range pods.Items {
+		log.Printf("Pod: %v\n", p.Name)
 		podNames = append(podNames, p.Name)
 	}
 	d.Set("pods", deduplicate(podNames))
@@ -511,9 +518,7 @@ func resourceInstanceUpdate(d *schema.ResourceData, m interface{}) error {
 		return fmt.Errorf("Error updating instance: %v", err)
 	}
 	if newPlan { // change in parameters trigger a new plan
-
 		return waitForInstance(d, m, name, namespace, old)
-
 	}
 	return resourceInstanceRead(d, m)
 
@@ -548,31 +553,11 @@ func waitForInstance(d *schema.ResourceData, m interface{}, name, namespace stri
 	//Wait for status plan to be done
 	config := m.(Config)
 	kudoClient := config.GetKudoClient()
-
-	for {
-		instance, err := kudoClient.GetInstance(name, namespace)
-		if err != nil {
-			return fmt.Errorf("Error updating instance: %v", err)
-		}
-		//Only if this was an update.  New objects need to wait for completion
-		if oldInstance != nil {
-			// We want one of the plans UIDs to change to identify that a new plan ran.
-			// If they're all the same, then nothing changed.
-			same := true
-			for planName, planStatus := range (*oldInstance).Status.PlanStatus {
-				same = same && planStatus.UID == instance.Status.PlanStatus[planName].UID
-			}
-			if same {
-				//Nothing changed yet, so we need KUDO to pick up the chnage we sent out
-				continue
-			}
-		}
-
-		if instance.Status.AggregatedStatus.Status.IsFinished() {
-			return resourceInstanceRead(d, m)
-		}
-		time.Sleep(time.Second)
+	err := kudoClient.WaitForInstance(name, namespace, oldInstance, time.Second*300)
+	if err != nil {
+		return err
 	}
+	return resourceInstanceRead(d, m)
 }
 
 func resourceInstanceDelete(d *schema.ResourceData, m interface{}) error {

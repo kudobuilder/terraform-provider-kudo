@@ -2,8 +2,10 @@ name: "Integration Tests"
 on:
   pull_request:
     branches:
-      - main
-
+    - main
+  push:
+    branches:
+    - main
 
 jobs:
   kind:

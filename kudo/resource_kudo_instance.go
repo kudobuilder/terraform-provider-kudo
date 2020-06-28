@@ -267,8 +267,6 @@ func resourceInstanceRead(d *schema.ResourceData, m interface{}) error {
 		return fmt.Errorf("Could not find OV %v/%v: %v", operatorVersionNamespace, operatorVersionName, err)
 	}
 
-	fmt.Println("------------")
-
 	//Set defaults from
 	for _, param := range ov.Spec.Parameters {
 

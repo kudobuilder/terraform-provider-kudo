@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -24,6 +25,9 @@ func testAccCheckInstancePods(id string, instance *v1beta1.Instance, count int) 
 
 		podCount, err := strconv.ParseInt(i.Primary.Attributes["pods.#"], 10, 64)
 		if err != nil {
+			fmt.Printf("Error finding pod count from resource:")
+			b, _ := json.MarshalIndent(i, "", "\t")
+			fmt.Println(string(b))
 			return err
 		}
 		//check

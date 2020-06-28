@@ -1,6 +1,6 @@
 provider "kudo" {
     kubeconfig = "/Users/tom/.kube/config"
-    kudo_version = "0.11.0"
+    kudo_version = "0.14.0"
 }
 
 resource "kudo_operator" "zookeeper" {

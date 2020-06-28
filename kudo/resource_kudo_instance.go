@@ -267,8 +267,11 @@ func resourceInstanceRead(d *schema.ResourceData, m interface{}) error {
 		return fmt.Errorf("Could not find OV %v/%v: %v", operatorVersionNamespace, operatorVersionName, err)
 	}
 
+	fmt.Println("------------")
+
 	//Set defaults from
 	for _, param := range ov.Spec.Parameters {
+
 		if param.Default != nil {
 			parameters[param.Name] = *param.Default
 		}
@@ -311,20 +314,24 @@ func resourceInstanceRead(d *schema.ResourceData, m interface{}) error {
 
 	//Pods
 	podNames := make([]string, 0)
-
+	log.Printf("Searching for Pods in namespace=%v\n", namespace)
 	//Get pods for instance (with label instance=name)
 	pods, err := kubeClient.CoreV1().Pods(namespace).List(listOptions1)
 	if err != nil {
 		return fmt.Errorf("Error getting pods: %v", err)
 	}
+	log.Printf("Found %v pods with label instance=%v:\n", len(pods.Items), name)
 	for _, p := range pods.Items {
+		log.Printf("Pod: %v\n", p.Name)
 		podNames = append(podNames, p.Name)
 	}
 	pods, err = kubeClient.CoreV1().Pods(namespace).List(listOptions2)
+	log.Printf("Found %v pods with label kudo.dev/instance=%v:\n", len(pods.Items), name)
 	if err != nil {
 		return fmt.Errorf("Error getting pods: %v", err)
 	}
 	for _, p := range pods.Items {
+		log.Printf("Pod: %v\n", p.Name)
 		podNames = append(podNames, p.Name)
 	}
 	d.Set("pods", deduplicate(podNames))
@@ -548,7 +555,11 @@ func waitForInstance(d *schema.ResourceData, m interface{}, name, namespace stri
 	//Wait for status plan to be done
 	config := m.(Config)
 	kudoClient := config.GetKudoClient()
-	return kudoClient.WaitForInstance(name, namespace, oldInstance, time.Second*300)
+	err := kudoClient.WaitForInstance(name, namespace, oldInstance, time.Second*300)
+	if err != nil {
+		return err
+	}
+	return resourceInstanceRead(d, m)
 }
 
 func resourceInstanceDelete(d *schema.ResourceData, m interface{}) error {

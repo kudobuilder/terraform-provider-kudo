@@ -6,7 +6,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-sdk/helper/logging"
@@ -164,16 +163,11 @@ func Provider() *schema.Provider {
 				Description: "Wait timeout to be used.",
 				Default:     300,
 			},
-			"webhooks": &schema.Schema{
-				Type:        schema.TypeString,
-				Optional:    true,
-				Default:     "",
-				Description: "Comma separated list of webhooks to install",
-			},
 			"kudo_version": &schema.Schema{
 				Type:        schema.TypeString,
 				Optional:    true,
 				Description: "KUDO version to install",
+				Default:     "0.14.0",
 			},
 			"namespace": &schema.Schema{
 				Type:        schema.TypeString,
@@ -202,7 +196,6 @@ func Provider() *schema.Provider {
 //Config captures the configuration of the KUDO provider
 type Config struct {
 	KudoImage      string
-	Webhooks       string
 	Version        string
 	Wait           bool
 	WaitTimeout    int
@@ -240,9 +233,9 @@ func (c Config) ToKUDOOpts() kudoinit.Options {
 		TerminationGracePeriodSeconds: 300,
 		Image:                         fmt.Sprintf("%v:v%v", c.KudoImage, c.Version),
 		ServiceAccount:                c.ServiceAccount,
-	}
-	if c.Webhooks != "" {
-		opts.Webhooks = strings.Split(c.Webhooks, ",")
+		ImagePullPolicy:               "Always",
+		//TODO(@runyontr) use cert manager at some point
+		SelfSignedWebhookCA: true,
 	}
 	return opts
 }
@@ -320,7 +313,7 @@ func kudoConfigureFunc(data *schema.ResourceData, terraformVersion string) (inte
 	if err != nil {
 		return nil, fmt.Errorf("Failed to obtain client to KUDO CRDs: %v", err)
 	}
-	c.KudoClient = kudo.NewClientFromK8s(c.RawKudoClient)
+	c.KudoClient = kudo.NewClientFromK8s(c.RawKudoClient, c.KubernetesClient)
 
 	extClient, err := apiextensionsclient.NewForConfig(cfg)
 	if err != nil {
@@ -341,9 +334,6 @@ func kudoConfigureFunc(data *schema.ResourceData, terraformVersion string) (inte
 
 	if v, ok := data.GetOk("image"); ok {
 		c.KudoImage = v.(string)
-	}
-	if v, ok := data.GetOk("webhooks"); ok {
-		c.Webhooks = v.(string)
 	}
 	if v, ok := data.GetOk("kudo_version"); ok {
 		c.Version = v.(string)
@@ -376,14 +366,24 @@ func kudoConfigureFunc(data *schema.ResourceData, terraformVersion string) (inte
 
 	//try an install, but don't care if it succeeds or not so plans
 	// can be run without an active cluster
-	err = setup.Install(client, opts, false)
-
+	installer := setup.NewInstaller(opts, false)
+	if installer == nil {
+		log.Println("[ERROR] [KUDO] Error creating installer.")
+		return c, err
+	}
+	err = installer.Install(c.KudoKubeClient)
 	if err != nil {
+		log.Printf("[ERROR] [KUDO] Error installing KUDO: %+v", err)
 		return c, err
 	}
 
-	//Wait for health of controller
+	err = setup.WatchKUDOUntilReady(c.KubernetesClient, opts, 600)
 
+	if err != nil {
+		log.Printf("[ERROR] [KUDO] Error installing KUDO: %+v", err)
+		return c, err
+	}
+	//Wait for health of controller
 	return c, waitForControllerHealth(client, opts, time.Minute)
 }
 

@@ -1,9 +1,5 @@
-name: "Integration Tests"
-on:
-  pull_request:
-    branches:
-      - main
-
+name: "Unit Tests"
+on: [push]
 
 jobs:
   kind:
@@ -25,4 +21,4 @@ jobs:
     - run: kubectl get nodes -o yaml
     - name: Testing
       run: |
-        TF_ACC=true go test ./kudo -v -timeout 20m -count=1
+        go test ./kudo -v -timeout 20m -count=1

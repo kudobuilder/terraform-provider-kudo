@@ -51,7 +51,7 @@ func Provider() *schema.Provider {
 		},
 		Schema: map[string]*schema.Schema{
 			// Most of these taken to match
-			// https://github.com/terraform-providers/terraform-provider-kubernetes/blob/master/kubernetes/provider.go#L25
+			// https://github.com/terraform-providers/terraform-provider-kubernetes/blob/main/kubernetes/provider.go#L25
 			"config_path": {
 				Type:     schema.TypeString,
 				Optional: true,
@@ -80,13 +80,13 @@ func Provider() *schema.Provider {
 				Type:        schema.TypeString,
 				Optional:    true,
 				DefaultFunc: schema.EnvDefaultFunc("KUBE_USER", ""),
-				Description: "The username to use for HTTP basic authentication when accessing the Kubernetes master endpoint.",
+				Description: "The username to use for HTTP basic authentication when accessing the Kubernetes control plane endpoint.",
 			},
 			"password": {
 				Type:        schema.TypeString,
 				Optional:    true,
 				DefaultFunc: schema.EnvDefaultFunc("KUBE_PASSWORD", ""),
-				Description: "The password to use for HTTP basic authentication when accessing the Kubernetes master endpoint.",
+				Description: "The password to use for HTTP basic authentication when accessing the Kubernetes control plane endpoint.",
 			},
 			//
 			"client_certificate": {

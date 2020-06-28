@@ -1,6 +1,7 @@
 # Terraform Provider for KUDO
 
 
+![Unit Tests](https://github.com/kudobuilder/terraform-provider-kudo/workflows/Unit%20Tests/badge.svg)
 ![Integration Tests](https://github.com/kudobuilder/terraform-provider-kudo/workflows/Integration%20Tests/badge.svg)
 
 ## Problem Statement
